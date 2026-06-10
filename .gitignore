@@ -1,0 +1,20 @@
+# Gradle build directories
+build/
+.gradle/
+
+# Nextflow runtime directories and logs
+.nextflow/
+.nextflow.log*
+work/
+
+# IDE configurations
+.idea/
+*.iml
+.project
+.classpath
+.settings/
+.vscode/
+
+# Operating System files
+.DS_Store
+Thumbs.db

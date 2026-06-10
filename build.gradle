@@ -1,0 +1,43 @@
+plugins {
+    id 'io.nextflow.nextflow-plugin' version '1.0.0-beta.10'
+}
+
+version = '0.1.0'
+group = 'io.nextflow'
+
+repositories {
+    mavenCentral()
+    maven {
+        url 'https://raw.github.com/DICE-UNC/DICE-Maven/master/releases'
+    }
+    // Filter out non-nextflow dependencies from seqera.io to prevent 403 Forbidden errors
+    all { repo ->
+        if (repo instanceof MavenArtifactRepository && repo.url.toString().contains("seqera")) {
+            repo.content {
+                includeGroup "io.nextflow"
+                includeGroup "nextflow"
+            }
+        }
+    }
+}
+
+dependencies {
+    implementation 'org.irods.jargon:jargon-core:4.3.7.0-RELEASE'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+nextflowPlugin {
+    nextflowVersion = '24.10.0'
+    provider = 'biocorecrg'
+    className = 'nextflow.irods.IrodsPlugin'
+    extensionPoints = [
+        'nextflow.irods.IrodsExtension'
+    ]
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
