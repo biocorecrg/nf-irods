@@ -2,7 +2,11 @@ package nextflow.irods.nio
 
 import java.nio.file.*
 import java.nio.file.attribute.UserPrincipalLookupService
+import groovy.json.JsonSlurper
+import org.irods.jargon.core.connection.AuthScheme
 import org.irods.jargon.core.connection.IRODSAccount
+import org.irods.jargon.core.connection.SettableJargonProperties
+import org.irods.jargon.core.connection.ClientServerNegotiationPolicy.SslNegotiationPolicy
 import org.irods.jargon.core.pub.IRODSFileSystem
 import org.irods.jargon.core.pub.io.IRODSFile
 import org.irods.jargon.core.pub.io.IRODSFileFactory
@@ -27,20 +31,75 @@ class IrodsFileSystem extends FileSystem {
         initIrods()
     }
 
+    private Map readIrodsEnvironment() {
+        def envFile = System.getenv("IRODS_ENVIRONMENT_FILE")
+        if (!envFile) {
+            def home = System.getProperty("user.home") ?: System.getenv("HOME")
+            if (home) {
+                envFile = "${home}/.irods/irods_environment.json"
+            }
+        }
+        
+        if (envFile) {
+            def file = new File(envFile)
+            if (file.exists()) {
+                try {
+                    log.info("Reading iRODS environment from ${file.absolutePath}")
+                    def parsed = new JsonSlurper().parse(file)
+                    if (parsed instanceof Map) {
+                        return (Map) parsed
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to parse iRODS environment file: ${e.message}")
+                }
+            }
+        }
+        return [:]
+    }
+
     private void initIrods() {
         try {
-            String host = config.host ?: System.getenv("IRODS_HOST") ?: "localhost"
-            int port = config.port ? (config.port as int) : (System.getenv("IRODS_PORT") ? System.getenv("IRODS_PORT").toInteger() : 1247)
-            String username = config.username ?: System.getenv("IRODS_USER_NAME") ?: System.getProperty("user.name")
+            def envConfig = readIrodsEnvironment()
+
+            String host = config.host ?: System.getenv("IRODS_HOST") ?: envConfig.irods_host ?: "localhost"
+            int port = config.port ? (config.port as int) : (System.getenv("IRODS_PORT") ? System.getenv("IRODS_PORT").toInteger() : (envConfig.irods_port ? envConfig.irods_port as int : 1247))
+            String username = config.username ?: System.getenv("IRODS_USER_NAME") ?: envConfig.irods_user_name ?: System.getProperty("user.name")
             String password = config.password ?: System.getenv("IRODS_PASSWORD") ?: ""
-            String zone = config.zone ?: System.getenv("IRODS_ZONE_NAME") ?: ""
-            String defaultStorageResource = config.defaultStorageResource ?: System.getenv("IRODS_DEFAULT_RESOURCE") ?: ""
-            String homeDirectory = config.homeDirectory ?: "/${zone}/home/${username}"
+            String zone = config.zone ?: System.getenv("IRODS_ZONE_NAME") ?: envConfig.irods_zone_name ?: ""
+            String defaultStorageResource = config.defaultStorageResource ?: System.getenv("IRODS_DEFAULT_RESOURCE") ?: envConfig.irods_default_resource ?: ""
+            String homeDirectory = config.homeDirectory ?: envConfig.irods_home ?: "/${zone}/home/${username}"
+            String authSchemeStr = config.authenticationScheme ?: envConfig.irods_authentication_scheme ?: ""
+            String clientServerPolicy = config.sslNegotiationPolicy ?: envConfig.irods_client_server_policy ?: ""
 
             log.info("Connecting to iRODS at ${host}:${port} as ${username} (zone: ${zone})")
             
             this.irodsFileSystem = IRODSFileSystem.instance()
+
+            // Configure SSL Negotiation Policy on the session if specified
+            if (clientServerPolicy) {
+                def session = irodsFileSystem.getIrodsSession()
+                def props = new SettableJargonProperties(session.getJargonProperties())
+                if (clientServerPolicy.equalsIgnoreCase("CS_NEG_REQUIRE")) {
+                    log.info("Setting SSL negotiation policy to CS_NEG_REQUIRE")
+                    props.setNegotiationPolicy(SslNegotiationPolicy.CS_NEG_REQUIRE)
+                } else if (clientServerPolicy.equalsIgnoreCase("CS_NEG_DONT_CARE")) {
+                    log.info("Setting SSL negotiation policy to CS_NEG_DONT_CARE")
+                    props.setNegotiationPolicy(SslNegotiationPolicy.CS_NEG_DONT_CARE)
+                } else if (clientServerPolicy.equalsIgnoreCase("CS_NEG_REFUSE")) {
+                    log.info("Setting SSL negotiation policy to CS_NEG_REFUSE")
+                    props.setNegotiationPolicy(SslNegotiationPolicy.CS_NEG_REFUSE)
+                }
+                session.setJargonProperties(props)
+            }
+
             this.irodsAccount = IRODSAccount.instance(host, port, username, password, homeDirectory, zone, defaultStorageResource)
+            
+            // Configure PAM Authentication if specified
+            if (authSchemeStr.equalsIgnoreCase("pam") || authSchemeStr.equalsIgnoreCase("pam_password")) {
+                log.info("Using PAM authentication for iRODS connection")
+                irodsAccount.setAuthenticationScheme(AuthScheme.PAM)
+            }
+
             this.fileFactory = irodsFileSystem.getIRODSAccessObjectFactory().getIRODSFileFactory(irodsAccount)
         } catch (Exception e) {
             log.error("Failed to initialize iRODS filesystem connection", e)
