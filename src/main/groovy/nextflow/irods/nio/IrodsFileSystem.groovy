@@ -57,6 +57,102 @@ class IrodsFileSystem extends FileSystem {
         return [:]
     }
 
+    private static final List<Long> SEQ_LIST = [
+        0xD768B678L, 0xEDFDAF56L, 0x2420231BL, 0x987098D8L,
+        0xC1BDFEEEL, 0xF572341FL, 0x478DEF3AL, 0xA830D343L,
+        0x774DFA2AL, 0x6720731EL, 0x346FA320L, 0x6FFDF43AL,
+        0x7723A320L, 0xDF67D02EL, 0x86AD240AL, 0xE76D342EL
+    ]
+
+    private static final String WHEEL = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!\"#\$%&'()*+,-./"
+
+    static int getUnixUid() {
+        try {
+            Class<?> c = Class.forName("com.sun.security.auth.module.UnixSystem")
+            Object system = c.getDeclaredConstructor().newInstance()
+            return (int) (long) c.getMethod("getUid").invoke(system)
+        } catch (Exception e) {
+            try {
+                return "id -u".execute().text.trim().toInteger()
+            } catch (Exception ex) {
+                return 0
+            }
+        }
+    }
+
+    static String descramble(String scrambled) {
+        if (!scrambled || scrambled.length() < 7) {
+            return ""
+        }
+        scrambled = scrambled.trim()
+        int seqIndex = (int) scrambled.charAt(6) - (int) 'e'
+        if (seqIndex < 0 || seqIndex >= SEQ_LIST.size()) {
+            return ""
+        }
+        long seq = SEQ_LIST[seqIndex]
+        int bitshift = 15
+        int uid = getUnixUid()
+
+        String encodedString = scrambled.substring(7)
+        StringBuilder decoded = new StringBuilder()
+
+        for (int i = 0; i < encodedString.length(); i++) {
+            char c = encodedString.charAt(i)
+            if (c == (char) 0) {
+                break
+            }
+            long offset = ((seq >> bitshift) & 0x1FL) + (uid & 0xF5FL)
+            bitshift += 3
+            if (bitshift > 28) {
+                bitshift = 0
+            }
+
+            int wheelIndex = WHEEL.indexOf((int) c)
+            if (wheelIndex != -1) {
+                int len = WHEEL.length()
+                int targetIndex = (int) ((len + wheelIndex - offset) % len)
+                if (targetIndex < 0) {
+                    targetIndex += len
+                }
+                decoded.append(WHEEL.charAt(targetIndex))
+            } else {
+                decoded.append(c)
+            }
+        }
+        return decoded.toString()
+    }
+
+    private String readObfuscatedPassword(Map envConfig) {
+        def authFile = envConfig.irods_authentication_file
+        if (!authFile) {
+            def home = System.getProperty("user.home") ?: System.getenv("HOME")
+            if (home) {
+                authFile = "${home}/.irods/.irodsA"
+            }
+        } else {
+            if (!authFile.startsWith("/")) {
+                def home = System.getProperty("user.home") ?: System.getenv("HOME")
+                if (home) {
+                    authFile = "${home}/.irods/${authFile}"
+                }
+            }
+        }
+
+        if (authFile) {
+            def file = new File(authFile)
+            if (file.exists()) {
+                try {
+                    log.info("Reading obfuscated password from ${file.absolutePath}")
+                    String scrambled = file.text
+                    return descramble(scrambled)
+                } catch (Exception e) {
+                    log.warn("Failed to read or decode obfuscated password file: ${e.message}")
+                }
+            }
+        }
+        return ""
+    }
+
     private void initIrods() {
         try {
             def envConfig = readIrodsEnvironment()
@@ -65,6 +161,9 @@ class IrodsFileSystem extends FileSystem {
             int port = config.port ? (config.port as int) : (System.getenv("IRODS_PORT") ? System.getenv("IRODS_PORT").toInteger() : (envConfig.irods_port ? envConfig.irods_port as int : 1247))
             String username = config.username ?: System.getenv("IRODS_USER_NAME") ?: envConfig.irods_user_name ?: System.getProperty("user.name")
             String password = config.password ?: System.getenv("IRODS_PASSWORD") ?: ""
+            if (!password) {
+                password = readObfuscatedPassword(envConfig)
+            }
             String zone = config.zone ?: System.getenv("IRODS_ZONE_NAME") ?: envConfig.irods_zone_name ?: ""
             String defaultStorageResource = config.defaultStorageResource ?: System.getenv("IRODS_DEFAULT_RESOURCE") ?: envConfig.irods_default_resource ?: ""
             String homeDirectory = config.homeDirectory ?: envConfig.irods_home ?: "/${zone}/home/${username}"

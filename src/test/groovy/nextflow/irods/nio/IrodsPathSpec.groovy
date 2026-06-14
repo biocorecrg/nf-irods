@@ -34,4 +34,36 @@ class IrodsPathSpec extends Specification {
         path.resolve("sub").toString() == "/zone/home/user/data/reads.fastq.gz/sub"
         path.getParent().resolve("other.fastq.gz").toString() == "/zone/home/user/data/other.fastq.gz"
     }
+
+    def 'should descramble password correctly'() {
+        given:
+        // Manual scramble implementation in test
+        def password = "secret_password_123!"
+        def uid = IrodsFileSystem.getUnixUid()
+        def wheel = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!\"#\$%&'()*+,-./"
+        def seq = 0xD768B678L // SEQ_LIST[0]
+        def bitshift = 15
+        
+        // Scramble
+        def scrambled = new StringBuilder(".E_abce")
+        for (int i = 0; i < password.length(); i++) {
+            char c = password.charAt(i)
+            long offset = ((seq >> bitshift) & 0x1FL) + (uid & 0xF5FL)
+            bitshift += 3
+            if (bitshift > 28) {
+                bitshift = 0
+            }
+            
+            int wheelIndex = wheel.indexOf((int) c)
+            if (wheelIndex != -1) {
+                int targetIndex = (int) ((wheelIndex + offset) % wheel.length())
+                scrambled.append(wheel.charAt(targetIndex))
+            } else {
+                scrambled.append(c)
+            }
+        }
+        
+        expect:
+        IrodsFileSystem.descramble(scrambled.toString()) == password
+    }
 }
