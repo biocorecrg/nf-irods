@@ -18,3 +18,8 @@ work/
 # Operating System files
 .DS_Store
 Thumbs.db
+
+# Local test configurations and scripts
+test_nextflow.config
+test_plugin.nf
+run_integration_test.sh
