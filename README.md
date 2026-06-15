@@ -20,24 +20,17 @@ unzip -o build/plugins/nf-irods-*.zip -d ~/.nextflow/plugins/
 
 ## How to Configure
 
-In your `nextflow.config`, add the plugin and specify the connection details for your iRODS server:
+In your `nextflow.config`, you simply need to enable the plugin:
 
 ```nextflow
 plugins {
     id 'nf-irods'
 }
-
-irods {
-    host = 'irods.example.com'
-    port = 1247
-    username = 'your_username'
-    password = 'your_password'
-    zone = 'zoneName'
-    defaultStorageResource = 'demoResc'
-}
 ```
 
-The plugin also supports standard environment variables if credentials are not specified in the configuration:
+**IMPORTANT**: The plugin automatically reads your standard iRODS configuration from `$HOME/.irods/irods_environment.json`. You must ensure this file exists and contains your connection details (host, port, zone, username, etc.).
+
+The plugin also supports standard environment variables as fallbacks if needed:
 - `IRODS_HOST`
 - `IRODS_PORT`
 - `IRODS_USER_NAME`
@@ -47,7 +40,7 @@ The plugin also supports standard environment variables if credentials are not s
 
 ## Authentication
 
-If your iRODS server uses short-lived PAM tokens (which is common), the plugin will automatically read your negotiated token from `~/.irods/.irodsA` if a password is not explicitly provided in the config. 
+If your iRODS server uses short-lived PAM tokens (which is common), the plugin will automatically read your negotiated token from `$HOME/.irods/.irodsA`.
 
 **IMPORTANT**: Because these PAM tokens typically expire quickly (often after 1 hour), you must re-authenticate with the server by running `iinit` before launching your pipeline:
 ```bash
