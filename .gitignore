@@ -23,3 +23,8 @@ Thumbs.db
 test_nextflow.config
 test_plugin.nf
 run_integration_test.sh
+test_*.py
+test_*.nf
+test_*.groovy
+dump_account.groovy
+results/

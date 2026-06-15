@@ -45,6 +45,17 @@ The plugin also supports standard environment variables if credentials are not s
 - `IRODS_ZONE_NAME`
 - `IRODS_DEFAULT_RESOURCE`
 
+## Authentication
+
+If your iRODS server uses short-lived PAM tokens (which is common), the plugin will automatically read your negotiated token from `~/.irods/.irodsA` if a password is not explicitly provided in the config. 
+
+**IMPORTANT**: Because these PAM tokens typically expire quickly (often after 1 hour), you must re-authenticate with the server by running `iinit` before launching your pipeline:
+```bash
+iinit
+nextflow run your_pipeline.nf
+```
+If your token has expired during a long-running execution or between runs, you will receive an `iRODS Authentication Failed! Your short-lived PAM token has likely EXPIRED` error in the Nextflow log, and you will simply need to run `iinit` again.
+
 ## How to Use
 
 Once configured, Nextflow can resolve iRODS paths natively in pipeline channels and parameters:

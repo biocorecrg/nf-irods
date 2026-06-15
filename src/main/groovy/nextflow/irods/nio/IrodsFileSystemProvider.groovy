@@ -20,6 +20,22 @@ class IrodsFileSystemProvider extends FileSystemProvider {
         this.sessionConfig = config
     }
 
+    static Map getSessionConfig() {
+        def config = [:]
+        if (sessionConfig) {
+            config.putAll(sessionConfig)
+        }
+        try {
+            def session = nextflow.Global.session
+            if (session?.config?.irods instanceof Map) {
+                config.putAll((Map) session.config.irods)
+            }
+        } catch (Throwable e) {
+            log.trace("Could not read irods config from Global session", e)
+        }
+        return config
+    }
+
     private final Map<URI, IrodsFileSystem> fileSystems = [:]
 
     @Override
@@ -33,7 +49,7 @@ class IrodsFileSystemProvider extends FileSystemProvider {
             if (fileSystems.containsKey(uri)) {
                 throw new FileSystemAlreadyExistsException()
             }
-            def fs = new IrodsFileSystem(this, uri, sessionConfig)
+            def fs = new IrodsFileSystem(this, uri, getSessionConfig())
             fileSystems.put(uri, fs)
             return fs
         }
@@ -44,7 +60,7 @@ class IrodsFileSystemProvider extends FileSystemProvider {
         synchronized (fileSystems) {
             def fs = fileSystems.get(uri)
             if (!fs) {
-                fs = new IrodsFileSystem(this, uri, sessionConfig)
+                fs = new IrodsFileSystem(this, uri, getSessionConfig())
                 fileSystems.put(uri, fs)
             }
             return fs
@@ -65,9 +81,11 @@ class IrodsFileSystemProvider extends FileSystemProvider {
 
     @Override
     InputStream newInputStream(Path path, OpenOption... options) throws IOException {
+        log.info("Staging file from iRODS into Nextflow workspace: ${path}")
         IRODSFile file = toIrodsFile(path)
         try {
-            return new BufferedInputStream(new IRODSFileInputStream(file))
+            def fs = (IrodsFileSystem) path.getFileSystem()
+            return new BufferedInputStream(fs.fileFactory.instanceIRODSFileInputStream(file))
         } catch (Exception e) {
             throw new IOException("Failed to open input stream for " + path + ": " + e.getMessage(), e)
         }
@@ -75,11 +93,13 @@ class IrodsFileSystemProvider extends FileSystemProvider {
 
     @Override
     OutputStream newOutputStream(Path path, OpenOption... options) throws IOException {
+        log.info("Writing file to iRODS: ${path}")
         IRODSFile file = toIrodsFile(path)
         try {
             // Ensure parent directories exist
             file.getParentFile().mkdirs()
-            return new BufferedOutputStream(new IRODSFileOutputStream(file))
+            def fs = (IrodsFileSystem) path.getFileSystem()
+            return new BufferedOutputStream(fs.fileFactory.instanceIRODSFileOutputStream(file))
         } catch (Exception e) {
             throw new IOException("Failed to open output stream for " + path + ": " + e.getMessage(), e)
         }
@@ -161,12 +181,18 @@ class IrodsFileSystemProvider extends FileSystemProvider {
 
     @Override
     DirectoryStream<Path> newDirectoryStream(Path dir, DirectoryStream.Filter<? super Path> filter) throws IOException {
+        log.info("Listing files in iRODS directory: ${dir}")
         IRODSFile file = toIrodsFile(dir)
         try {
-            String[] list = file.list() ?: new String[0]
+            String[] list = file.list()
+            log.info("iRODS list() returned: ${list ? list.inspect() : 'null'}")
+            if (list == null) {
+                list = new String[0]
+            }
             List<Path> paths = list.collect { String name ->
                 dir.resolve(name)
             }.findAll { Path p -> filter == null || filter.accept(p) }
+            log.info("Filtered paths: ${paths}")
             
             return new DirectoryStream<Path>() {
                 @Override
@@ -177,6 +203,7 @@ class IrodsFileSystemProvider extends FileSystemProvider {
                 void close() throws IOException {}
             }
         } catch (Exception e) {
+            log.error("Failed to list directory " + dir + ": " + e.getMessage(), e)
             throw new IOException("Failed to list directory " + dir + ": " + e.getMessage(), e)
         }
     }
@@ -205,6 +232,7 @@ class IrodsFileSystemProvider extends FileSystemProvider {
 
     @Override
     void copy(Path source, Path target, CopyOption... options) throws IOException {
+        log.info("Staging file from ${source} into ${target}")
         newInputStream(source).withStream { input ->
             newOutputStream(target).withStream { out ->
                 input.transferTo(out)
@@ -214,6 +242,7 @@ class IrodsFileSystemProvider extends FileSystemProvider {
 
     @Override
     void move(Path source, Path target, CopyOption... options) throws IOException {
+        log.info("Moving file from ${source} to ${target}")
         IRODSFile src = toIrodsFile(source)
         IRODSFile dst = toIrodsFile(target)
         dst.getParentFile().mkdirs()

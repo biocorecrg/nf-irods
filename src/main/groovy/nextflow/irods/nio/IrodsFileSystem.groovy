@@ -70,13 +70,28 @@ class IrodsFileSystem extends FileSystem {
         try {
             Class<?> c = Class.forName("com.sun.security.auth.module.UnixSystem")
             Object system = c.getDeclaredConstructor().newInstance()
-            return (int) (long) c.getMethod("getUid").invoke(system)
-        } catch (Exception e) {
-            try {
-                return "id -u".execute().text.trim().toInteger()
-            } catch (Exception ex) {
-                return 0
+            int uid = (int) (long) c.getMethod("getUid").invoke(system)
+            log.info("UnixSystem reflection succeeded, UID: ${uid}")
+            return uid
+        } catch (Throwable e) {
+            log.warn("UnixSystem reflection failed: ${e.toString()}")
+            for (def cmd in ["id -u", "/usr/bin/id -u", "/bin/id -u"]) {
+                try {
+                    def proc = cmd.execute()
+                    proc.waitFor()
+                    if (proc.exitValue() == 0) {
+                        int uid = proc.text.trim().toInteger()
+                        log.info("Command '${cmd}' succeeded, UID: ${uid}")
+                        return uid
+                    } else {
+                        log.warn("Command '${cmd}' exited with code ${proc.exitValue()}: ${proc.err.text.trim()}")
+                    }
+                } catch (Throwable ex) {
+                    log.warn("Command '${cmd}' failed: ${ex.toString()}")
+                }
             }
+            log.error("All methods to retrieve Unix UID failed, defaulting to 0")
+            return 0
         }
     }
 
@@ -92,6 +107,7 @@ class IrodsFileSystem extends FileSystem {
         long seq = SEQ_LIST[seqIndex]
         int bitshift = 15
         int uid = getUnixUid()
+        log.info("iRODS descramble: getUnixUid() returned UID ${uid}")
 
         String encodedString = scrambled.substring(7)
         StringBuilder decoded = new StringBuilder()
@@ -119,7 +135,9 @@ class IrodsFileSystem extends FileSystem {
                 decoded.append(c)
             }
         }
-        return decoded.toString()
+        String result = decoded.toString()
+        log.info("iRODS descramble: decoded password length is " + result.length() + ", starts with: " + (result.length() > 3 ? result.substring(0, 3) : "TOO SHORT"))
+        return result
     }
 
     private String readObfuscatedPassword(Map envConfig) {
@@ -154,6 +172,7 @@ class IrodsFileSystem extends FileSystem {
     }
 
     private void initIrods() {
+        boolean fromObfuscatedFile = false
         try {
             def envConfig = readIrodsEnvironment()
 
@@ -163,6 +182,9 @@ class IrodsFileSystem extends FileSystem {
             String password = config.password ?: System.getenv("IRODS_PASSWORD") ?: ""
             if (!password) {
                 password = readObfuscatedPassword(envConfig)
+                if (password) {
+                    fromObfuscatedFile = true
+                }
             }
             String zone = config.zone ?: System.getenv("IRODS_ZONE_NAME") ?: envConfig.irods_zone_name ?: ""
             String defaultStorageResource = config.defaultStorageResource ?: System.getenv("IRODS_DEFAULT_RESOURCE") ?: envConfig.irods_default_resource ?: ""
@@ -195,14 +217,33 @@ class IrodsFileSystem extends FileSystem {
             
             // Configure PAM Authentication if specified
             if (authSchemeStr.equalsIgnoreCase("pam") || authSchemeStr.equalsIgnoreCase("pam_password")) {
-                log.info("Using PAM authentication for iRODS connection")
-                irodsAccount.setAuthenticationScheme(AuthScheme.PAM)
+                if (fromObfuscatedFile) {
+                    log.info("Using STANDARD authentication for iRODS connection because password was read from obfuscated file (which contains the negotiated short-lived token)")
+                    irodsAccount.setAuthenticationScheme(AuthScheme.STANDARD)
+                } else {
+                    log.info("Using PAM authentication for iRODS connection")
+                    irodsAccount.setAuthenticationScheme(AuthScheme.PAM)
+                }
             }
 
             this.fileFactory = irodsFileSystem.getIRODSAccessObjectFactory().getIRODSFileFactory(irodsAccount)
         } catch (Exception e) {
+            String msg = e.getMessage() ?: ""
+            if (e.getClass().getSimpleName() == "InvalidUserException" || msg.contains("-816000") || msg.contains("-840000")) {
+                if (fromObfuscatedFile) {
+                    log.error("")
+                    log.error("=========================================================================")
+                    log.error(" iRODS Authentication Failed! ")
+                    log.error(" Your short-lived PAM token (~/.irods/.irodsA) has likely EXPIRED.")
+                    log.error(" Please generate a fresh token by running: iinit")
+                    log.error("=========================================================================")
+                    log.error("")
+                } else {
+                    log.error("iRODS Authentication Error: Invalid user or password.")
+                }
+            }
             log.error("Failed to initialize iRODS filesystem connection", e)
-            throw new IOException("Failed to initialize iRODS connection: " + e.getMessage(), e)
+            throw new IOException("Failed to initialize iRODS connection: " + msg, e)
         }
     }
 
