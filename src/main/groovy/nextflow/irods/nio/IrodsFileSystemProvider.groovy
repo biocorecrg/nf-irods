@@ -181,11 +181,18 @@ class IrodsFileSystemProvider extends FileSystemProvider {
 
     @Override
     DirectoryStream<Path> newDirectoryStream(Path dir, DirectoryStream.Filter<? super Path> filter) throws IOException {
-        log.info("Listing files in iRODS directory: ${dir}")
+        log.info("TRACE: Entering newDirectoryStream for path: ${dir}")
         IRODSFile file = toIrodsFile(dir)
+        if (!file.exists()) {
+            throw new NoSuchFileException(dir.toString())
+        }
+        if (!file.isDirectory()) {
+            throw new NotDirectoryException(dir.toString())
+        }
         try {
+            log.info("TRACE: Calling file.list() for ${dir}")
             String[] list = file.list()
-            log.info("iRODS list() returned: ${list ? list.inspect() : 'null'}")
+            log.info("TRACE: iRODS list() returned: ${list ? list.length : 0} items")
             if (list == null) {
                 list = new String[0]
             }
@@ -285,7 +292,11 @@ class IrodsFileSystemProvider extends FileSystemProvider {
     @Override
     <A extends BasicFileAttributes> A readAttributes(Path path, Class<A> type, LinkOption... options) throws IOException {
         if (type == BasicFileAttributes.class) {
-            return (A) new IrodsFileAttributes(toIrodsFile(path))
+            IRODSFile file = toIrodsFile(path)
+            if (!file.exists()) {
+                throw new NoSuchFileException(path.toString())
+            }
+            return (A) new IrodsFileAttributes(file)
         }
         throw new UnsupportedOperationException("Unsupported attribute type: " + type)
     }
