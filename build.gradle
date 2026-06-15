@@ -40,6 +40,9 @@ nextflowPlugin {
     extensionPoints = [
         'nextflow.irods.IrodsExtension'
     ]
+    registry {
+        apiKey = System.getenv('NPR_API_KEY') ?: (project.findProperty('npr.apiKey') ?: '')
+    }
 }
 
 java {

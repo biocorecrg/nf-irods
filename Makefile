@@ -9,3 +9,6 @@ clean:
 
 test:
 	gradle test
+
+release:
+	gradle releasePlugin
