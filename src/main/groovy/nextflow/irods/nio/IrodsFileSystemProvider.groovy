@@ -181,7 +181,7 @@ class IrodsFileSystemProvider extends FileSystemProvider {
 
     @Override
     DirectoryStream<Path> newDirectoryStream(Path dir, DirectoryStream.Filter<? super Path> filter) throws IOException {
-        log.info("TRACE: Entering newDirectoryStream for path: ${dir}")
+        log.debug("TRACE: Entering newDirectoryStream for path: ${dir}")
         IRODSFile file = toIrodsFile(dir)
         if (!file.exists()) {
             throw new NoSuchFileException(dir.toString())
@@ -190,16 +190,16 @@ class IrodsFileSystemProvider extends FileSystemProvider {
             throw new NotDirectoryException(dir.toString())
         }
         try {
-            log.info("TRACE: Calling file.list() for ${dir}")
+            log.debug("TRACE: Calling file.list() for ${dir}")
             String[] list = file.list()
-            log.info("TRACE: iRODS list() returned: ${list ? list.length : 0} items")
+            log.debug("TRACE: iRODS list() returned: ${list ? list.length : 0} items")
             if (list == null) {
                 list = new String[0]
             }
             List<Path> paths = list.collect { String name ->
                 dir.resolve(name)
             }.findAll { Path p -> filter == null || filter.accept(p) }
-            log.info("Filtered paths: ${paths}")
+            log.debug("Filtered paths: ${paths}")
             
             return new DirectoryStream<Path>() {
                 @Override

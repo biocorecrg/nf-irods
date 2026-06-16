@@ -236,6 +236,7 @@ class IrodsFileSystem extends FileSystem {
                     log.error(" iRODS Authentication Failed! ")
                     log.error(" Your short-lived PAM token (~/.irods/.irodsA) has likely EXPIRED.")
                     log.error(" Please generate a fresh token by running: iinit")
+                    log.error(" Hint: If running a pipeline, use 'iinit --ttl 120' to avoid expiration.")
                     log.error("=========================================================================")
                     log.error("")
                 } else {

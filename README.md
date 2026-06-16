@@ -42,12 +42,12 @@ The plugin also supports standard environment variables as fallbacks if needed:
 
 If your iRODS server uses short-lived PAM tokens (which is common), the plugin will automatically read your negotiated token from `$HOME/.irods/.irodsA`.
 
-**IMPORTANT**: Because these PAM tokens typically expire quickly (often after 1 hour), you must re-authenticate with the server by running `iinit` before launching your pipeline:
+**IMPORTANT**: Because these PAM tokens typically expire quickly (often after 1 hour), you must re-authenticate with the server by running `iinit` before launching your pipeline. To prevent the token from expiring during a long-running pipeline execution, it is highly recommended to request a longer token lifetime using the `--ttl` option (in hours):
 ```bash
-iinit
+iinit --ttl 120
 nextflow run your_pipeline.nf
 ```
-If your token has expired during a long-running execution or between runs, you will receive an `iRODS Authentication Failed! Your short-lived PAM token has likely EXPIRED` error in the Nextflow log, and you will simply need to run `iinit` again.
+If your token has expired during a long-running execution or between runs, you will receive an `iRODS Authentication Failed! Your short-lived PAM token has likely EXPIRED` error (iRODS error `-840000`) in the Nextflow log, and you will need to run `iinit` again with a longer TTL.
 
 ## How to Use
 
