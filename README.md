@@ -51,25 +51,37 @@ If your token has expired during a long-running execution or between runs, you w
 
 ## How to Use
 
-Once configured, Nextflow can resolve iRODS paths natively in pipeline channels and parameters:
+Once configured, Nextflow can resolve iRODS paths natively in pipeline channels and parameters. 
+
+> [!WARNING]
+> **Globbing Limitation**: Wildcard pattern matching (using `*`) is not supported natively via the `irods://` protocol in this plugin. Instead of glob patterns, you must pass multiple files explicitly as a list of absolute paths.
+
+Here is an example of passing multiple paths to a channel and running a process:
 
 ```nextflow
-params.reads = 'irods:///zone/home/user/data/*.fastq.gz'
+params.reads = [
+    'irods:///zone/home/user/data/sample1_1.fastq.gz',
+    'irods:///zone/home/user/data/sample1_2.fastq.gz'
+]
 
 process FASTQC {
     input:
-    path reads
+    path read
 
     output:
     path "fastqc_*.html"
 
     script:
     """
-    fastqc ${reads}
+    fastqc ${read}
     """
 }
 
 workflow {
-    Channel.fromPath(params.reads) | FASTQC
+    Channel.fromList(params.reads)
+        .map { file(it) }
+        .set { reads_ch }
+
+    FASTQC(reads_ch)
 }
 ```
